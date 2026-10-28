@@ -1,7 +1,10 @@
-"""SQLite data layer. One file DB = easy to back up, easy to version the schema in Git."""
+"""SQLite data layer with an automatic audit trail and role-based write guard."""
+import json
 import sqlite3
+from datetime import datetime, timezone
 from pathlib import Path
 import pandas as pd
+import streamlit as st
 
 DB = Path(__file__).parent / "data" / "qms.db"
 
@@ -18,6 +21,26 @@ CREATE TABLE IF NOT EXISTS suppliers(id INTEGER PRIMARY KEY, name TEXT, category
   status TEXT, last_audit TEXT, next_audit TEXT, iso13485_cert TEXT, cert_expiry TEXT, notes TEXT);
 CREATE TABLE IF NOT EXISTS audits(id INTEGER PRIMARY KEY, audit_no TEXT, audit_type TEXT, scope TEXT, auditor TEXT,
   audit_date TEXT, finding TEXT, finding_class TEXT, iso_clause TEXT, capa_no TEXT, status TEXT);
+CREATE TABLE IF NOT EXISTS users(id INTEGER PRIMARY KEY, username TEXT UNIQUE, full_name TEXT, role TEXT,
+  pw_hash TEXT, failed INTEGER DEFAULT 0, active INTEGER DEFAULT 1);
+CREATE TABLE IF NOT EXISTS audit_trail(id INTEGER PRIMARY KEY, ts TEXT, user TEXT, action TEXT, tbl TEXT,
+  record_id INTEGER, detail TEXT);
+CREATE TABLE IF NOT EXISTS complaints(id INTEGER PRIMARY KEY, complaint_no TEXT UNIQUE, device TEXT, lot TEXT,
+  awareness_date TEXT, description TEXT, event_type TEXT, report_due TEXT, report_status TEXT,
+  investigation TEXT, capa_no TEXT, fsca TEXT, status TEXT);
+CREATE TABLE IF NOT EXISTS mgmt_reviews(id INTEGER PRIMARY KEY, review_date TEXT, attendees TEXT,
+  inputs_snapshot TEXT, other_inputs TEXT, decisions TEXT, actions TEXT, next_review TEXT);
+CREATE TABLE IF NOT EXISTS devices(id INTEGER PRIMARY KEY, name TEXT UNIQUE, intended_purpose TEXT, mdr_class TEXT,
+  rule TEXT, route TEXT);
+CREATE TABLE IF NOT EXISTS techdoc(id INTEGER PRIMARY KEY, device TEXT, item_ref TEXT, item TEXT, status TEXT,
+  doc_ref TEXT, notes TEXT);
+CREATE TABLE IF NOT EXISTS design_reqs(id INTEGER PRIMARY KEY, device TEXT, req_no TEXT, requirement TEXT, source TEXT,
+  risk_ref INTEGER DEFAULT 0, output_ref TEXT, verification_ref TEXT, verification_status TEXT, validation_ref TEXT,
+  validation_status TEXT);
+CREATE TABLE IF NOT EXISTS design_reviews(id INTEGER PRIMARY KEY, device TEXT, stage TEXT, review_date TEXT,
+  participants TEXT, independent_reviewer TEXT, decisions TEXT, status TEXT);
+CREATE TABLE IF NOT EXISTS design_changes(id INTEGER PRIMARY KEY, change_no TEXT, device TEXT, description TEXT,
+  reason TEXT, impact_risk TEXT, impact_vv TEXT, impact_regulatory TEXT, status TEXT, change_date TEXT);
 """
 
 def conn():
@@ -30,25 +53,57 @@ def init():
     with conn() as c:
         c.executescript(SCHEMA)
 
+def query(sql, params=()):
+    with conn() as c:
+        return [dict(r) for r in c.execute(sql, params).fetchall()]
+
+def execute(sql, params=()):
+    with conn() as c:
+        return c.execute(sql, params).lastrowid
+
 def df(table):
     with conn() as c:
         return pd.read_sql_query(f"SELECT * FROM {table}", c)
 
+def _user():
+    return st.session_state.get("user")
+
+def _guard():
+    u = _user()
+    if not u or u["role"] not in ("Admin", "QA"):
+        st.error("Read-only role: you do not have permission to change records.")
+        st.stop()
+
+def log(action, table="", rid=0, detail="", user=None):
+    execute("INSERT INTO audit_trail(ts,user,action,tbl,record_id,detail) VALUES(?,?,?,?,?,?)",
+            (datetime.now(timezone.utc).isoformat(timespec="seconds"), user or (_user() or {}).get("username", "system"),
+             action, table, rid, detail))
+
+def _safe(table, row):
+    return {"username": row.get("username")} if table == "users" else row
+
 def insert(table, row: dict):
-    cols = ",".join(row)
-    qs = ",".join("?" * len(row))
-    with conn() as c:
-        c.execute(f"INSERT INTO {table}({cols}) VALUES({qs})", list(row.values()))
+    _guard()
+    rid = execute(f"INSERT INTO {table}({','.join(row)}) VALUES({','.join('?' * len(row))})", list(row.values()))
+    log("CREATE", table, rid, json.dumps(_safe(table, row), default=str)[:2000])
+    return rid
 
 def update(table, rid, row: dict):
-    sets = ",".join(f"{k}=?" for k in row)
-    with conn() as c:
-        c.execute(f"UPDATE {table} SET {sets} WHERE id=?", [*row.values(), rid])
+    _guard()
+    old = query(f"SELECT * FROM {table} WHERE id=?", (rid,))
+    old = old[0] if old else {}
+    diff = {k: [old.get(k), v] for k, v in row.items() if old.get(k) != v}
+    if not diff:
+        return
+    execute(f"UPDATE {table} SET {','.join(f'{k}=?' for k in row)} WHERE id=?", [*row.values(), rid])
+    log("UPDATE", table, rid, json.dumps({k: "***" for k in diff} if table == "users" else diff, default=str)[:2000])
 
 def delete(table, rid):
-    with conn() as c:
-        c.execute(f"DELETE FROM {table} WHERE id=?", (rid,))
+    _guard()
+    log("DELETE", table, rid)
+    execute(f"DELETE FROM {table} WHERE id=?", (rid,))
 
 def next_no(table, col, prefix):
-    n = len(df(table)) + 1
+    n = query(f"SELECT COALESCE(MAX(id),0)+1 AS n FROM {table}")[0]["n"]
     return f"{prefix}-{n:03d}"
+

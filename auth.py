@@ -95,3 +95,5 @@ def sign(pw, meaning, table, rid):
     ok = _check(pw, row["pw_hash"])
     db.log("E-SIGN" if ok else "E-SIGN_FAILED", table, rid, meaning)
     return ok
+
+    

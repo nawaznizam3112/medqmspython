@@ -41,6 +41,21 @@ CREATE TABLE IF NOT EXISTS design_reviews(id INTEGER PRIMARY KEY, device TEXT, s
   participants TEXT, independent_reviewer TEXT, decisions TEXT, status TEXT);
 CREATE TABLE IF NOT EXISTS design_changes(id INTEGER PRIMARY KEY, change_no TEXT, device TEXT, description TEXT,
   reason TEXT, impact_risk TEXT, impact_vv TEXT, impact_regulatory TEXT, status TEXT, change_date TEXT);
+CREATE TABLE IF NOT EXISTS pms_plans(id INTEGER PRIMARY KEY, device TEXT UNIQUE, plan_ref TEXT, data_sources TEXT,
+  trend_method TEXT, pmcf_needed TEXT, pmcf_justification TEXT, last_report TEXT, next_report_due TEXT);
+CREATE TABLE IF NOT EXISTS pmcf_activities(id INTEGER PRIMARY KEY, device TEXT, activity TEXT, method TEXT, status TEXT,
+  due TEXT, report_ref TEXT, findings TEXT);
+CREATE TABLE IF NOT EXISTS pms_sales(id INTEGER PRIMARY KEY, device TEXT, period TEXT, units INTEGER);
+CREATE TABLE IF NOT EXISTS trend_assessments(id INTEGER PRIMARY KEY, device TEXT, period TEXT, signal TEXT,
+  assessment TEXT, significant TEXT, action TEXT, capa_no TEXT, assessed_date TEXT);
+CREATE TABLE IF NOT EXISTS equipment(id INTEGER PRIMARY KEY, eq_no TEXT UNIQUE, name TEXT, category TEXT, location TEXT,
+  serial TEXT, cal_required TEXT, cal_interval_days INTEGER, last_cal TEXT, next_cal TEXT, status TEXT);
+CREATE TABLE IF NOT EXISTS calibrations(id INTEGER PRIMARY KEY, eq_no TEXT, cal_date TEXT, performed_by TEXT,
+  standard_ref TEXT, result TEXT, certificate_ref TEXT, impact_assessment TEXT, next_due TEXT);
+CREATE TABLE IF NOT EXISTS env_records(id INTEGER PRIMARY KEY, area TEXT, parameter TEXT, reading REAL, limit_low REAL,
+  limit_high REAL, recorded_at TEXT, recorded_by TEXT, in_spec TEXT, action TEXT);
+CREATE TABLE IF NOT EXISTS process_validations(id INTEGER PRIMARY KEY, process TEXT, eq_no TEXT, stage TEXT,
+  protocol_ref TEXT, report_ref TEXT, outcome TEXT, stage_date TEXT, reval_months INTEGER DEFAULT 12, notes TEXT);
 """
 
 def conn():

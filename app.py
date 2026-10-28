@@ -36,6 +36,12 @@ else:
     c2[1].metric("Vigilance reports overdue", 0)
     c2[2].metric("Vigilance due in 5 days", 0)
 
+eqd, pld = db.df("equipment"), db.df("pms_plans")
+c3 = st.columns(3)
+c3[0].metric("Calibrations overdue", int(((eqd.cal_required == "Yes") & (eqd.next_cal != "") & (eqd.next_cal < today)).sum()) if len(eqd) else 0)
+c3[1].metric("Equipment quarantined", int((eqd.status == "Quarantined").sum()) if len(eqd) else 0)
+c3[2].metric("PSUR/PMS reports due ≤60d or overdue", int(((pld.next_report_due != "") & (pld.next_report_due <= (date.today() + timedelta(days=60)).isoformat())).sum()) if len(pld) else 0)
+
 st.divider()
 st.subheader("How the processes connect (the part most people miss)")
 st.markdown("""
@@ -57,3 +63,4 @@ with st.expander("Load demo data (for learning / screenshots)"):
         db.insert("suppliers", dict(name="Precision Titanium Pvt Ltd", category="Raw material", criticality="Critical", status="Approved",
                   last_audit="2025-06-01", next_audit="2026-06-01", iso13485_cert="Yes", cert_expiry="2026-12-31", notes="Grade 4 Ti"))
         st.success("Seeded. Refresh the page.")
+

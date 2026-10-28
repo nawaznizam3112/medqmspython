@@ -1,9 +1,9 @@
 import streamlit as st
 from datetime import date, timedelta
-import db
+import auth, db
 
 st.set_page_config(page_title="MD-QMS", page_icon="🩺", layout="wide")
-db.init()
+auth.require()
 
 st.title("🩺 Medical Device QMS — ISO 13485:2016 / EU MDR 2017/745")
 st.caption("Learn the requirement, then run the record. Use the sidebar to move between QMS processes.")
@@ -24,6 +24,17 @@ else:
     bad = 0
 c[3].metric("Risks: high residual / unverified", bad)
 c[4].metric("Supplier certs expiring ≤90d", n(sup, (sup.cert_expiry != "") & (sup.cert_expiry <= soon)) if len(sup) else 0)
+
+comp = db.df("complaints")
+c2 = st.columns(3)
+c2[0].metric("Open complaints", n(comp, comp.status != "Closed") if len(comp) else 0)
+if len(comp):
+    pend = comp[(comp.report_status == "To report") & (comp.report_due != "")]
+    c2[1].metric("Vigilance reports overdue", int((pend.report_due < today).sum()))
+    c2[2].metric("Vigilance due in 5 days", int(((pend.report_due >= today) & (pend.report_due <= (date.today() + timedelta(days=5)).isoformat())).sum()))
+else:
+    c2[1].metric("Vigilance reports overdue", 0)
+    c2[2].metric("Vigilance due in 5 days", 0)
 
 st.divider()
 st.subheader("How the processes connect (the part most people miss)")
